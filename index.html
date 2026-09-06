@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<title>PFD</title>
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="PFD">
+<meta name="theme-color" content="#000000">
+<style>
+  :root{
+    --sky-top:#0b4d92; --sky-bot:#4a9bd6;
+    --gnd-top:#7a4a26; --gnd-bot:#4a2c14;
+    --horizon-line:#f2f4f2;
+    --tape-bg: rgba(4,6,10,0.78);
+    --tape-border: rgba(255,255,255,0.14);
+    --text: #eef2f6;
+    --dim: #7c8896;
+    --yellow: #ffcc33;
+    --cyan: #4fd8e8;
+    --red: #ff5c5c;
+    --green: #6be38a;
+    --font-num: 'SF Mono','Menlo','Courier New',monospace;
+    --font-label: -apple-system,'Helvetica Neue',sans-serif;
+  }
+  *{ box-sizing:border-box; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+  html,body{ margin:0; padding:0; height:100%; background:#000; overflow:hidden; font-family:var(--font-label); }
+
+  #pfd{ position:fixed; inset:0; overflow:hidden; background:#000; }
+
+  /* ---- 姿态地平仪(跟随手机陀螺仪) ---- */
+  #rollWrap{
+    position:absolute; width:300vmax; height:300vmax;
+    left:50%; top:50%; margin-left:-150vmax; margin-top:-150vmax;
+    transform-origin:50% 50%;
+    will-change:transform;
+  }
+  #pitchWrap{ position:absolute; inset:0; will-change:transform; }
+  .sky, .ground{ position:absolute; left:0; width:100%; height:50%; }
+  .sky{ top:0; background:linear-gradient(to bottom, var(--sky-top), var(--sky-bot)); }
+  .ground{ top:50%; background:linear-gradient(to bottom, var(--gnd-top), var(--gnd-bot)); }
+  .horizon-line{ position:absolute; top:50%; left:0; width:100%; height:3px; background:var(--horizon-line); transform:translateY(-1.5px); box-shadow:0 0 4px rgba(0,0,0,.5); }
+  #ladder{ position:absolute; top:50%; left:0; width:100%; height:0; }
+  .rung{ position:absolute; left:50%; width:100%; transform:translate(-50%,-50%); }
+  .rung .seg{ position:absolute; top:0; width:22vw; height:2px; background:var(--horizon-line); }
+  .rung .seg.l{ right:calc(50% + 30px); }
+  .rung .seg.r{ left:calc(50% + 30px); }
+  .rung.minor .seg{ width:9vw; background:rgba(242,244,242,0.65); }
+  .rung .lbl{ position:absolute; top:-8px; font-family:var(--font-num); font-size:12px; color:var(--horizon-line); }
+  .rung .lbl.l{ right:calc(50% + 30px + 22vw + 6px); }
+  .rung .lbl.r{ left:calc(50% + 30px + 22vw + 6px); }
+
+  /* ---- 固定飞机基准符号 ---- */
+  #aircraftSymbol{
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    width:120px; height:24px; z-index:5; pointer-events:none;
+  }
+
+  /* ---- 坡度指针(roll pointer) ---- */
+  #rollScale{ position:absolute; left:50%; top:26px; transform:translateX(-50%); width:180px; height:90px; z-index:4; pointer-events:none; }
+  #rollPointer{ position:absolute; left:50%; top:14px; transform-origin:50% 76px; }
+
+  /* ---- 航向带(顶部) ---- */
+  #headingBar{
+    position:absolute; top:0; left:50%; transform:translateX(-50%);
+    width:70vw; height:34px; margin-top:0;
+    background:var(--tape-bg); border:1px solid var(--tape-border); border-top:none;
+    border-radius:0 0 8px 8px; overflow:hidden; z-index:6;
+  }
+  #headingScroller{ position:absolute; top:0; left:50%; height:100%; will-change:transform; }
+  .hdg-tick{ position:absolute; top:18px; width:1px; height:8px; background:var(--dim); }
+  .hdg-tick.major{ background:var(--text); height:12px; top:14px; }
+  .hdg-lbl{ position:absolute; top:2px; font-family:var(--font-num); font-size:12px; color:var(--text); transform:translateX(-50%); }
+  #hdgPointer{
+    position:absolute; top:32px; left:50%; transform:translateX(-50%);
+    width:0; height:0; border-left:6px solid transparent; border-right:6px solid transparent;
+    border-bottom:7px solid var(--yellow); z-index:7;
+  }
+  #hdgDigital{
+    position:absolute; top:36px; left:50%; transform:translateX(-50%);
+    background:var(--tape-bg); border:1px solid var(--yellow); border-radius:4px;
+    padding:1px 8px; font-family:var(--font-num); font-size:15px; font-weight:600;
+    color:var(--yellow); z-index:7; letter-spacing:.03em;
+  }
+
+  /* ---- 速度 / 高度带(左右两侧) ---- */
+  .tape{
+    position:absolute; top:50%; transform:translateY(-50%);
+    width:78px; height:46vh; background:var(--tape-bg);
+    border:1px solid var(--tape-border); border-radius:8px; overflow:hidden; z-index:6;
+  }
+  #speedTape{ left:10px; }
+  #altTape{ right:96px; }
+  .tape-scroller{ position:absolute; left:0; top:50%; width:100%; will-change:transform; }
+  .tk{ position:absolute; left:8px; width:12px; height:1px; background:var(--dim); }
+  .tk.major{ background:var(--text); width:16px; height:2px; }
+  .tk-lbl{ position:absolute; left:26px; font-family:var(--font-num); font-size:16px; color:var(--text); transform:translateY(-50%); font-variant-numeric:tabular-nums; }
+  .tape-box{
+    position:absolute; left:0; top:50%; width:100%; transform:translateY(-50%);
+    background:#03050a; border-top:2px solid var(--text); border-bottom:2px solid var(--text);
+    height:34px; display:flex; align-items:center; justify-content:center; z-index:2;
+    font-family:var(--font-num); font-size:21px; font-weight:700; color:var(--text);
+    font-variant-numeric:tabular-nums;
+  }
+  .tape-unit{
+    position:absolute; left:0; bottom:-20px; width:100%; text-align:center;
+    font-family:var(--font-num); font-size:10px; color:var(--dim); letter-spacing:.06em;
+  }
+
+  /* ---- 垂直速度表(高度带右侧) ---- */
+  #vsPanel{
+    position:absolute; right:10px; top:50%; transform:translateY(-50%);
+    width:34px; height:34vh; z-index:6;
+  }
+  #vsScale{ position:absolute; inset:0; }
+  .vs-tick{ position:absolute; right:0; width:8px; height:1px; background:var(--dim); }
+  .vs-tick.zero{ background:var(--text); height:2px; width:12px; }
+  #vsPointer{
+    position:absolute; right:0; width:0; height:0;
+    border-top:6px solid transparent; border-bottom:6px solid transparent;
+    border-right:9px solid var(--cyan);
+    filter:drop-shadow(0 0 2px rgba(79,216,232,.6));
+  }
+  #vsDigital{
+    position:absolute; right:0; top:-22px;
+    font-family:var(--font-num); font-size:12px; color:var(--cyan);
+    background:var(--tape-bg); border:1px solid var(--tape-border); border-radius:4px;
+    padding:1px 5px; white-space:nowrap;
+  }
+
+  /* ---- 状态栏 ---- */
+  #statusBar{
+    position:absolute; bottom:8px; left:50%; transform:translateX(-50%);
+    display:flex; align-items:center; gap:10px; z-index:8;
+    font-family:var(--font-num); font-size:10px; color:var(--dim); letter-spacing:.04em;
+  }
+  #statusBar .dot{ width:6px; height:6px; border-radius:50%; background:var(--dim); }
+  #statusBar.ok .dot{ background:var(--green); box-shadow:0 0 5px var(--green); }
+  #statusBar.err .dot{ background:var(--red); box-shadow:0 0 5px var(--red); }
+
+  /* ---- 单位切换(贴在两侧带下方) ---- */
+  .unit-toggle{
+    position:absolute; top:calc(50% + 23vh + 26px); z-index:6;
+    display:flex; gap:5px;
+  }
+  #speedTape ~ .unit-toggle{ left:10px; }
+  .unit-btn{
+    font-family:var(--font-num); font-size:10px; color:var(--dim);
+    background:var(--tape-bg); border:1px solid var(--tape-border);
+    border-radius:5px; padding:3px 7px;
+  }
+  .unit-btn.active{ color:var(--yellow); border-color:var(--yellow); }
+
+  /* ---- 开始遮罩 ---- */
+  .overlay{
+    position:fixed; inset:0; background:#05070a; z-index:20;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:16px; padding:0 12vw; text-align:center;
+  }
+  .overlay h1{ font-size:17px; color:#e6e9ee; font-weight:600; margin:0; }
+  .overlay p{ font-size:13.5px; color:var(--dim); line-height:1.7; margin:0; }
+  .overlay button{
+    font-family:var(--font-label); font-size:15px; font-weight:600;
+    color:#05070a; background:var(--yellow); border:none;
+    border-radius:10px; padding:13px 30px; margin-top:6px;
+  }
+  .hidden{ display:none !important; }
+</style>
+</head>
+<body>
+
+<div id="overlay" class="overlay">
+  <h1>波音787式主飞行显示</h1>
+  <p>需要授权定位与运动传感器权限。地平仪跟随<b>手机自身姿态</b>(非真实机身姿态),速度/高度来自GPS,航向来自指南针,垂直速度由高度变化估算,飞行模式下也能运行。</p>
+  <button id="startBtn">开始</button>
+  <p id="overlayMsg" style="color:var(--red); display:none;"></p>
+</div>
+
+<div id="pfd">
+  <div id="rollWrap">
+    <div id="pitchWrap">
+      <div class="sky"></div>
+      <div class="ground"></div>
+      <div class="horizon-line"></div>
+      <div id="ladder"></div>
+    </div>
+  </div>
+
+  <svg id="aircraftSymbol" viewBox="0 0 120 24">
+    <polygon points="0,12 40,12 40,8 46,8 46,16 40,16 40,12" fill="#111" stroke="#ffcc33" stroke-width="2"/>
+    <polygon points="120,12 80,12 80,8 74,8 74,16 80,16 80,12" fill="#111" stroke="#ffcc33" stroke-width="2"/>
+    <circle cx="60" cy="12" r="4" fill="#111" stroke="#ffcc33" stroke-width="2"/>
+  </svg>
+
+  <svg id="rollScale" viewBox="0 0 180 90">
+    <polygon points="90,10 84,20 96,20" fill="var(--horizon-line)"/>
+  </svg>
+  <div id="rollPointer">
+    <svg width="16" height="16" viewBox="0 0 16 16"><polygon points="8,0 14,14 2,14" fill="var(--yellow)" stroke="#000" stroke-width="0.5"/></svg>
+  </div>
+
+  <div id="headingBar">
+    <div id="headingScroller"></div>
+  </div>
+  <div id="hdgPointer"></div>
+  <div id="hdgDigital">---°</div>
+
+  <div id="speedTape">
+    <div class="tape-scroller" id="speedScroller"></div>
+  </div>
+  <div class="tape-box" id="speedBox" style="left:10px; width:78px;">--</div>
+  <div class="tape-unit" id="speedUnitLbl" style="left:10px; width:78px;">KPH</div>
+  <div class="unit-toggle" style="left:10px;">
+    <button class="unit-btn active" data-group="speed" data-unit="kph">KPH</button>
+    <button class="unit-btn" data-group="speed" data-unit="kn">KT</button>
+  </div>
+
+  <div id="altTape">
+    <div class="tape-scroller" id="altScroller"></div>
+  </div>
+  <div class="tape-box" id="altBox" style="right:96px; width:78px;">--</div>
+  <div class="tape-unit" id="altUnitLbl" style="right:96px; width:78px;">M</div>
+  <div class="unit-toggle" style="right:96px;">
+    <button class="unit-btn active" data-group="alt" data-unit="m">M</button>
+    <button class="unit-btn" data-group="alt" data-unit="ft">FT</button>
+  </div>
+
+  <div id="vsPanel">
+    <div id="vsScale"></div>
+    <div id="vsPointer"></div>
+    <div id="vsDigital">-- </div>
+  </div>
+
+  <div id="statusBar">
+    <div class="dot"></div>
+    <span id="statusText">等待信号</span>
+    <span id="accuracyText"></span>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ===== 状态 =====
+  let speedUnit = 'kph';     // kph | kn
+  let altUnit = 'm';         // m | ft
+  let lastSpeedMs = null;    // m/s
+  let lastAltM = null;       // m
+  let lastFixTime = 0;
+  let lastHeading = null;    // 0-360
+  let pitchDeg = 0;
+  let rollDeg = 0;
+  const altHistory = [];     // {t, alt} 用于估算垂直速度
+  let vsSmoothed = null;     // m/s
+
+  // ===== 常量 =====
+  const PX_PER_DEG_PITCH = Math.max(window.innerHeight / 45, 6);
+  const SPEED_STEP = 20, SPEED_PX = 46, SPEED_MAX = 400;   // kph 刻度: 每20一格,间距46px
+  const ALT_STEP = 500, ALT_PX = 40, ALT_MAX = 14000;      // m 刻度: 每500一格,间距40px
+  const HDG_PX_PER_DEG = 4;
+
+  // ===== DOM =====
+  const overlay = document.getElementById('overlay');
+  const overlayMsg = document.getElementById('overlayMsg');
+  const pitchWrap = document.getElementById('pitchWrap');
+  const rollWrap = document.getElementById('rollWrap');
+  const rollPointer = document.getElementById('rollPointer');
+  const ladder = document.getElementById('ladder');
+  const headingScroller = document.getElementById('headingScroller');
+  const hdgDigital = document.getElementById('hdgDigital');
+  const speedScroller = document.getElementById('speedScroller');
+  const altScroller = document.getElementById('altScroller');
+  const speedBox = document.getElementById('speedBox');
+  const altBox = document.getElementById('altBox');
+  const speedUnitLbl = document.getElementById('speedUnitLbl');
+  const altUnitLbl = document.getElementById('altUnitLbl');
+  const vsPointer = document.getElementById('vsPointer');
+  const vsDigital = document.getElementById('vsDigital');
+  const vsScale = document.getElementById('vsScale');
+  const statusBar = document.getElementById('statusBar');
+  const statusText = document.getElementById('statusText');
+  const accuracyText = document.getElementById('accuracyText');
+
+  // ===== 构建俯仰刻度 =====
+  for (let d = -90; d <= 90; d += 10) {
+    if (d === 0) continue;
+    const rung = document.createElement('div');
+    rung.className = 'rung' + (Math.abs(d) % 30 !== 0 && Math.abs(d) > 30 ? ' minor' : '');
+    rung.style.top = (-d * PX_PER_DEG_PITCH) + 'px';
+    rung.innerHTML =
+      '<div class="seg l"></div><div class="seg r"></div>' +
+      '<div class="lbl l">' + Math.abs(d) + '</div>' +
+      '<div class="lbl r">' + Math.abs(d) + '</div>';
+    ladder.appendChild(rung);
+  }
+
+  // ===== 构建航向带 =====
+  for (let d = 0; d < 360; d += 10) {
+    const tick = document.createElement('div');
+    tick.className = 'hdg-tick' + (d % 30 === 0 ? ' major' : '');
+    tick.style.left = (d * HDG_PX_PER_DEG) + 'px';
+    headingScroller.appendChild(tick);
+    if (d % 30 === 0) {
+      const lbl = document.createElement('div');
+      lbl.className = 'hdg-lbl';
+      lbl.style.left = (d * HDG_PX_PER_DEG) + 'px';
+      lbl.textContent = d === 0 ? 'N' : d === 90 ? 'E' : d === 180 ? 'S' : d === 270 ? 'W' : (d / 10).toString();
+      headingScroller.appendChild(lbl);
+    }
+  }
+  // 前后各补一圈,保证滚动不露白
+  for (let rep = -1; rep <= 1; rep += 2) {
+    for (let d = 0; d < 360; d += 30) {
+      const dd = d + rep * 360;
+      const lbl = document.createElement('div');
+      lbl.className = 'hdg-lbl';
+      lbl.style.left = (dd * HDG_PX_PER_DEG) + 'px';
+      lbl.textContent = d === 0 ? 'N' : d === 90 ? 'E' : d === 180 ? 'S' : d === 270 ? 'W' : (d / 10).toString();
+      headingScroller.appendChild(lbl);
+      const tick = document.createElement('div');
+      tick.className = 'hdg-tick major';
+      tick.style.left = (dd * HDG_PX_PER_DEG) + 'px';
+      headingScroller.appendChild(tick);
+    }
+  }
+
+  // ===== 构建速度带刻度 =====
+  function buildTape(scroller, step, px, max, unitConvertFn){
+    scroller.innerHTML = '';
+    for (let v = 0; v <= max; v += step) {
+      const tk = document.createElement('div');
+      tk.className = 'tk major';
+      tk.style.top = (-v / step * px) + 'px';
+      scroller.appendChild(tk);
+      const lbl = document.createElement('div');
+      lbl.className = 'tk-lbl';
+      lbl.style.top = (-v / step * px) + 'px';
+      lbl.textContent = unitConvertFn ? unitConvertFn(v) : v;
+      scroller.appendChild(lbl);
+    }
+  }
+  function rebuildSpeedTape(){
+    buildTape(speedScroller, SPEED_STEP, SPEED_PX, SPEED_MAX);
+  }
+  function rebuildAltTape(){
+    buildTape(altScroller, ALT_STEP, ALT_PX, ALT_MAX, (v)=> altUnit==='m' ? v : Math.round(v*3.28084));
+  }
+  rebuildSpeedTape();
+  rebuildAltTape();
+
+  // ===== VS 刻度(简单静态,-2000..2000 fpm 等效) =====
+  const VS_RANGE = 6; // 对应 -3..3 m/s 或约 -600..600 fpm 附近做視覺映射,超出用夹止
+  for (let v = -VS_RANGE; v <= VS_RANGE; v += 1) {
+    const tick = document.createElement('div');
+    tick.className = 'vs-tick' + (v === 0 ? ' zero' : '');
+    tick.style.top = (50 - (v / VS_RANGE) * 45) + '%';
+    vsScale.appendChild(tick);
+  }
+
+  // ===== 格式化函数 =====
+  function fmtSpeed(ms){
+    if (ms === null || ms === undefined || isNaN(ms)) return '--';
+    const v = Math.max(ms, 0);
+    return speedUnit === 'kph' ? Math.round(v * 3.6) : Math.round(v * 1.9438445);
+  }
+  function fmtAlt(m){
+    if (m === null || m === undefined || isNaN(m)) return '--';
+    return altUnit === 'm' ? Math.round(m) : Math.round(m * 3.28084);
+  }
+  function fmtVS(msPerS){
+    if (msPerS === null || msPerS === undefined || isNaN(msPerS)) return '--';
+    if (altUnit === 'm') return (msPerS >= 0 ? '+' : '') + msPerS.toFixed(1) + ' m/s';
+    const fpm = msPerS * 196.8504;
+    return (fpm >= 0 ? '+' : '') + Math.round(fpm / 10) * 10 + ' ft/min';
+  }
+
+  // ===== 渲染:姿态(高频, 事件触发) =====
+  function renderAttitude(){
+    rollWrap.style.transform = 'rotate(' + (-rollDeg) + 'deg)';
+    pitchWrap.style.transform = 'translateY(' + (pitchDeg * PX_PER_DEG_PITCH) + 'px)';
+    rollPointer.style.transform = 'rotate(' + rollDeg + 'deg)';
+  }
+
+  // ===== 渲染:航向 =====
+  function renderHeading(){
+    if (lastHeading === null) { hdgDigital.textContent = '---°'; return; }
+    let h = lastHeading;
+    headingScroller.style.transform = 'translateX(' + (-h * HDG_PX_PER_DEG) + 'px)';
+    hdgDigital.textContent = Math.round(h).toString().padStart(3,'0') + '°';
+  }
+
+  // ===== 渲染:速度/高度/垂速(2Hz) =====
+  function renderData(){
+    const stale = (Date.now() - lastFixTime) > 3000;
+
+    speedBox.textContent = fmtSpeed(lastSpeedMs);
+    altBox.textContent = fmtAlt(lastAltM);
+    speedBox.style.opacity = (stale || lastSpeedMs === null) ? 0.4 : 1;
+    altBox.style.opacity = (stale || lastAltM === null) ? 0.4 : 1;
+
+    // 速度带的物理刻度固定按 km/h 建造(不随单位切换重建),故始终按 km/h 值计算位移
+    const spdKph = lastSpeedMs ? lastSpeedMs * 3.6 : 0;
+    speedScroller.style.transform = 'translateY(' + (spdKph / SPEED_STEP * SPEED_PX) + 'px)';
+
+    const altDisp = lastAltM || 0;
+    altScroller.style.transform = 'translateY(' + (altDisp / ALT_STEP * ALT_PX) + 'px)';
+
+    if (vsSmoothed !== null) {
+      const clamped = Math.max(-VS_RANGE, Math.min(VS_RANGE, vsSmoothed));
+      vsPointer.style.top = (50 - (clamped / VS_RANGE) * 45) + '%';
+      vsPointer.style.transform = 'translateY(-6px)';
+      vsDigital.textContent = fmtVS(vsSmoothed);
+    } else {
+      vsDigital.textContent = '--';
+    }
+  }
+
+  // ===== 单位切换 =====
+  document.querySelectorAll('.unit-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const group = btn.dataset.group;
+      document.querySelectorAll('.unit-btn[data-group="'+group+'"]').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      if (group === 'speed') {
+        speedUnit = btn.dataset.unit;
+        speedUnitLbl.textContent = speedUnit === 'kph' ? 'KPH' : 'KT';
+      } else {
+        altUnit = btn.dataset.unit;
+        altUnitLbl.textContent = altUnit === 'm' ? 'M' : 'FT';
+        rebuildAltTape();
+      }
+      renderData();
+    });
+  });
+
+  // ===== 位置回调 =====
+  function onPosition(pos){
+    lastFixTime = Date.now();
+    lastSpeedMs = pos.coords.speed;
+    lastAltM = pos.coords.altitude;
+
+    if (lastAltM !== null && !isNaN(lastAltM)) {
+      altHistory.push({ t: lastFixTime, alt: lastAltM });
+      while (altHistory.length > 8) altHistory.shift();
+      if (altHistory.length >= 3) {
+        const first = altHistory[0], last = altHistory[altHistory.length - 1];
+        const dt = (last.t - first.t) / 1000;
+        if (dt > 1) {
+          const raw = (last.alt - first.alt) / dt;
+          vsSmoothed = vsSmoothed === null ? raw : (vsSmoothed * 0.7 + raw * 0.3);
+        }
+      }
+    }
+
+    statusBar.classList.add('ok'); statusBar.classList.remove('err');
+    statusText.textContent = '已定位';
+    const acc = pos.coords.accuracy;
+    accuracyText.textContent = acc ? ('±' + Math.round(acc) + 'm') : '';
+  }
+  function onPositionError(err){
+    statusBar.classList.add('err'); statusBar.classList.remove('ok');
+    statusText.textContent = '定位失败: ' + (err.message || err.code);
+  }
+
+  // ===== 姿态与航向回调 =====
+  function onOrientation(e){
+    if (e.beta !== null) pitchDeg = Math.max(-90, Math.min(90, e.beta - 90));
+    if (e.gamma !== null) rollDeg = Math.max(-90, Math.min(90, e.gamma));
+    if (typeof e.webkitCompassHeading === 'number') {
+      lastHeading = e.webkitCompassHeading;
+    } else if (e.alpha !== null) {
+      lastHeading = 360 - e.alpha;
+    }
+    renderAttitude();
+    renderHeading();
+  }
+
+  // ===== 启动 =====
+  function startSensors(){
+    if ('geolocation' in navigator) {
+      navigator.geolocation.watchPosition(onPosition, onPositionError, {
+        enableHighAccuracy: true, maximumAge: 0, timeout: 15000
+      });
+    }
+    if ('ondeviceorientationabsolute' in window) {
+      window.addEventListener('deviceorientationabsolute', onOrientation, true);
+    } else {
+      window.addEventListener('deviceorientation', onOrientation, true);
+    }
+  }
+
+  document.getElementById('startBtn').addEventListener('click', () => {
+    const needsMotionPerm = typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function';
+
+    const proceed = () => { overlay.classList.add('hidden'); startSensors(); };
+
+    if (needsMotionPerm) {
+      DeviceOrientationEvent.requestPermission().then(state => {
+        if (state === 'granted') { proceed(); }
+        else {
+          overlayMsg.style.display = 'block';
+          overlayMsg.textContent = '未授权运动传感器,地平仪将无法显示,但速度/高度仍可用。';
+          proceed();
+        }
+      }).catch(() => { proceed(); });
+    } else {
+      proceed();
+    }
+  });
+
+  setInterval(renderData, 500);
+  renderData();
+  renderAttitude();
+  renderHeading();
+
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(()=>{});
+    });
+  }
+})();
+</script>
+</body>
+</html>
