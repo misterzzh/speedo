@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>GS / ALT</title>
+<meta name="theme-color" content="#04070a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="GS">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<style>
+  :root{
+    --bg:#04070a;
+    --panel:#070c11;
+    --rule:rgba(122,162,184,.16);
+    --label:#6d8291;
+    --value:#e9f2f7;
+    --dim:#3d4d59;
+    --gs:#31e08c;
+    --alt:#57c9ea;
+    --warn:#ffb545;
+    --bad:#ff5f56;
+    --pad:clamp(10px,3.2vw,22px);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;overflow:hidden;background:var(--bg)}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif;
+    color:var(--value);
+    -webkit-user-select:none;user-select:none;
+    touch-action:manipulation;
+  }
+  .num{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+
+  #app{
+    position:fixed;inset:0;display:grid;
+    grid-template-rows:auto 1fr;
+    padding-top:env(safe-area-inset-top);
+    padding-bottom:env(safe-area-inset-bottom);
+    padding-left:env(safe-area-inset-left);
+    padding-right:env(safe-area-inset-right);
+  }
+
+  /* ---- track tape ---- */
+  .tape{position:relative;border-bottom:1px solid var(--rule);background:var(--panel)}
+  .tape canvas{display:block;width:100%;height:clamp(62px,11vh,104px)}
+  .tape .cap{
+    position:absolute;left:50%;bottom:4px;transform:translateX(-50%);
+    font-size:10px;letter-spacing:.22em;color:var(--label)
+  }
+
+  /* ---- instrument grid ---- */
+  .grid{
+    display:grid;grid-template-columns:1fr 1fr;
+    grid-template-rows:1.25fr 1fr 1fr;
+    min-height:0;
+  }
+  .cell{
+    position:relative;min-width:0;min-height:0;
+    padding:var(--pad);
+    display:flex;flex-direction:column;justify-content:center;gap:.35em;
+    border-bottom:1px solid var(--rule);
+  }
+  .cell:nth-child(odd){border-right:1px solid var(--rule)}
+  .grid .cell:nth-last-child(-n+2){border-bottom:none}
+
+  .lbl{font-size:clamp(9px,2.5vw,11px);letter-spacing:.2em;color:var(--label);text-transform:uppercase}
+  .read{display:flex;align-items:baseline;gap:.3em;line-height:1}
+  .v{font-size:clamp(34px,10.5vw,64px);font-weight:500;letter-spacing:-.02em}
+  .v.sm{font-size:clamp(24px,7vw,42px)}
+  .v.xs{font-size:clamp(20px,6vw,34px)}
+  .u{font-size:clamp(10px,2.8vw,13px);letter-spacing:.14em;color:var(--label)}
+  .gs .v{color:var(--gs)}
+  .alt .v{color:var(--alt)}
+  .neg{color:var(--warn)!important}
+
+  .seg{display:flex;gap:4px;margin-top:.2em;flex-wrap:wrap}
+  .seg button{
+    font:inherit;font-size:clamp(9px,2.4vw,11px);letter-spacing:.08em;
+    padding:4px 8px;border-radius:2px;border:1px solid var(--rule);
+    background:transparent;color:var(--dim);cursor:pointer;
+  }
+  .seg button[aria-pressed="true"]{color:var(--value);border-color:rgba(122,162,184,.45);background:rgba(122,162,184,.1)}
+
+  .split{display:flex;flex-direction:column;gap:.55em}
+  .coords{font-size:clamp(15px,4.6vw,24px);line-height:1.35;color:var(--value)}
+  .status{display:flex;align-items:center;gap:.5em;font-size:clamp(10px,2.7vw,12px);color:var(--label);letter-spacing:.08em}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--dim);flex:none}
+  .dot.ok{background:var(--gs);box-shadow:0 0 8px rgba(49,224,140,.6)}
+  .dot.warn{background:var(--warn)}
+  .dot.bad{background:var(--bad)}
+
+  .maxrow{display:flex;align-items:flex-end;gap:.6em}
+  #reset{
+    font:inherit;font-size:16px;line-height:1;padding:6px 9px;border-radius:2px;
+    border:1px solid var(--rule);background:transparent;color:var(--label);cursor:pointer;
+  }
+  #reset:active{background:rgba(122,162,184,.14)}
+
+  /* ---- start / error overlay ---- */
+  #gate{
+    position:fixed;inset:0;z-index:20;background:var(--bg);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:20px;padding:32px;text-align:center;
+  }
+  #gate h1{font-size:13px;letter-spacing:.32em;color:var(--label);font-weight:500;text-transform:uppercase}
+  #gate p{font-size:14px;line-height:1.6;color:var(--dim);max-width:30ch}
+  #go{
+    font:inherit;font-size:15px;letter-spacing:.2em;padding:16px 38px;
+    border:1px solid var(--gs);color:var(--gs);background:transparent;border-radius:2px;cursor:pointer;
+  }
+  #go:active{background:rgba(49,224,140,.12)}
+  #gate.hide{display:none}
+  button:focus-visible{outline:2px solid var(--gs);outline-offset:2px}
+</style>
+</head>
+<body>
+
+<div id="app" aria-hidden="false">
+  <div class="tape">
+    <canvas id="tape"></canvas>
+    <div class="cap">TRACK</div>
+  </div>
+
+  <div class="grid">
+    <div class="cell gs">
+      <div class="lbl">Ground speed</div>
+      <div class="read"><span class="v num" id="gs">- - -</span><span class="u" id="gsU">KT</span></div>
+      <div class="seg" data-k="speed">
+        <button data-u="KT">KT</button><button data-u="KM/H">KM/H</button>
+      </div>
+    </div>
+
+    <div class="cell alt">
+      <div class="lbl">GPS altitude</div>
+      <div class="read"><span class="v num" id="alt">- - -</span><span class="u" id="altU">FT</span></div>
+      <div class="seg" data-k="alt">
+        <button data-u="FT">FT</button><button data-u="M">M</button>
+      </div>
+    </div>
+
+    <div class="cell">
+      <div class="lbl">Speed trend</div>
+      <div class="read"><span class="v sm num" id="trend">- - -</span><span class="u" id="trendU">KT/S</span></div>
+      <div class="seg" data-k="trend">
+        <button data-u="KT/S">KT/S</button><button data-u="KPH/S">KPH/S</button>
+      </div>
+    </div>
+
+    <div class="cell">
+      <div class="lbl">Vertical speed</div>
+      <div class="read"><span class="v sm num" id="vs">- - -</span><span class="u" id="vsU">FT/MIN</span></div>
+      <div class="seg" data-k="vs">
+        <button data-u="FT/MIN">FT/MIN</button><button data-u="M/S">M/S</button><button data-u="M/MIN">M/MIN</button>
+      </div>
+    </div>
+
+    <div class="cell">
+      <div class="split">
+        <div>
+          <div class="lbl">G</div>
+          <div class="read"><span class="v sm num" id="g">- . - -</span></div>
+        </div>
+        <div>
+          <div class="lbl">Max G</div>
+          <div class="maxrow">
+            <span class="v xs num" id="maxg">- . - -</span>
+            <button id="reset" title="清零峰值">&#8635;</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="cell">
+      <div class="split">
+        <div class="coords num"><span id="lat">--.----° -</span><br><span id="lon">---.----° -</span></div>
+        <div class="status"><span class="dot" id="dot"></span><span id="stat">待定位</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="gate">
+  <h1>GPS Speed &amp; Altitude</h1>
+  <p id="gateMsg">开始后授权“位置”和“运动与健身”，屏幕会保持常亮。首次联网打开一次即可离线使用。</p>
+  <button id="go">START</button>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var KT=1.9438444924406, MS_KMH=3.6, M_FT=3.280839895, FPM=196.8503937;
+
+  var S={
+    units:{speed:'KT',alt:'FT',trend:'KT/S',vs:'FT/MIN'},
+    samples:[],          // {t, sp(m/s), alt(m)}
+    lastFix:null,        // raw coords for fallback speed
+    lastFixTime:0,
+    dispGS:null, dispALT:null,
+    trend:null, vs:null,
+    hdg:null, hdgShown:null, hdgValid:false,
+    g:null, maxG:0, motionOK:false, motionStart:0,
+    acc:null, lat:null, lon:null,
+    err:null, running:false, wake:null
+  };
+
+  /* ---------- persistence ---------- */
+  try{
+    var saved=JSON.parse(localStorage.getItem('units')||'null');
+    if(saved) for(var k in S.units) if(saved[k]) S.units[k]=saved[k];
+  }catch(e){}
+  function saveUnits(){ try{ localStorage.setItem('units',JSON.stringify(S.units)); }catch(e){} }
+
+  var $=function(id){return document.getElementById(id);};
+
+  /* ---------- unit buttons ---------- */
+  Array.prototype.forEach.call(document.querySelectorAll('.seg'),function(seg){
+    var key=seg.dataset.k;
+    Array.prototype.forEach.call(seg.children,function(b){
+      b.addEventListener('click',function(){
+        S.units[key]=b.dataset.u; saveUnits(); syncSeg(); render();
+      });
+    });
+  });
+  function syncSeg(){
+    Array.prototype.forEach.call(document.querySelectorAll('.seg'),function(seg){
+      var cur=S.units[seg.dataset.k];
+      Array.prototype.forEach.call(seg.children,function(b){
+        b.setAttribute('aria-pressed', b.dataset.u===cur ? 'true':'false');
+      });
+    });
+    $('gsU').textContent=S.units.speed;
+    $('altU').textContent=S.units.alt;
+    $('trendU').textContent=S.units.trend;
+    $('vsU').textContent=S.units.vs;
+  }
+  syncSeg();
+
+  $('reset').addEventListener('click',function(){ S.maxG = S.g||0; });
+
+  /* ---------- math ---------- */
+  function haversine(a,b){
+    var R=6371008.8, dLat=(b.latitude-a.latitude)*Math.PI/180,
+        dLon=(b.longitude-a.longitude)*Math.PI/180,
+        la=a.latitude*Math.PI/180, lb=b.latitude*Math.PI/180;
+    var h=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.sin(dLon/2)*Math.sin(dLon/2)*Math.cos(la)*Math.cos(lb);
+    return 2*R*Math.asin(Math.min(1,Math.sqrt(h)));
+  }
+  // least-squares slope (unit/second) over samples[]; needs enough span & points
+  function slope(arr,key,minSpan,minN){
+    var pts=[],i,s;
+    for(i=0;i<arr.length;i++){ s=arr[i]; if(s[key]!=null&&isFinite(s[key])) pts.push(s); }
+    if(pts.length<minN) return null;
+    var span=(pts[pts.length-1].t-pts[0].t)/1000;
+    if(span<minSpan) return null;
+    var t0=pts[0].t,n=pts.length,sx=0,sy=0,sxx=0,sxy=0,x,y;
+    for(i=0;i<n;i++){ x=(pts[i].t-t0)/1000; y=pts[i][key]; sx+=x; sy+=y; sxx+=x*x; sxy+=x*y; }
+    var d=n*sxx-sx*sx;
+    if(Math.abs(d)<1e-9) return null;
+    return (n*sxy-sx*sy)/d;
+  }
+  function ema(prev,val,a){ return prev==null?val:prev+(val-prev)*a; }
+
+  /* ---------- geolocation ---------- */
+  function onPos(p){
+    var c=p.coords, t=p.timestamp||Date.now();
+    S.err=null; S.lastFixTime=Date.now();
+    S.lat=c.latitude; S.lon=c.longitude; S.acc=c.accuracy;
+
+    var sp=c.speed;
+    if(sp==null||sp<0||!isFinite(sp)){
+      if(S.lastFix && t>S.lastFixTimeRaw){
+        var dt=(t-S.lastFixTimeRaw)/1000;
+        sp = dt>0.2 ? haversine(S.lastFix,c)/dt : null;
+      } else sp=null;
+    }
+    S.lastFix={latitude:c.latitude,longitude:c.longitude};
+    S.lastFixTimeRaw=t;
+
+    var alt=(c.altitude!=null&&isFinite(c.altitude))?c.altitude:null;
+    S.samples.push({t:t, sp:sp, alt:alt});
+    var cut=t-20000;
+    while(S.samples.length && S.samples[0].t<cut) S.samples.shift();
+
+    if(sp!=null) S.dispGS=ema(S.dispGS,sp,0.55);
+    if(alt!=null) S.dispALT=ema(S.dispALT,alt,0.35);
+
+    S.trend=slope(S.samples.filter(function(s){return s.t>t-6000;}),'sp',3,4);   // m/s²
+    S.vs=slope(S.samples.filter(function(s){return s.t>t-12000;}),'alt',5,5);    // m/s
+
+    if(c.heading!=null&&isFinite(c.heading)&&sp!=null&&sp>0.8){ S.hdg=c.heading; S.hdgValid=true; }
+    else if(sp!=null&&sp<0.5){ S.hdgValid=false; }
+  }
+  function onErr(e){
+    S.err=e.code;
+    if(e.code===1){ showGate('位置权限被拒绝。到 iOS 设置 → Safari（或本 App）→ 位置，改为“使用期间”，然后重新开始。','重试'); }
+  }
+
+  function startGeo(){
+    if(!navigator.geolocation){ showGate('这台设备不支持定位。','关闭'); return; }
+    navigator.geolocation.watchPosition(onPos,onErr,{enableHighAccuracy:true,maximumAge:0,timeout:30000});
+  }
+
+  /* ---------- motion (G) ---------- */
+  function attachMotion(){
+    S.motionStart=Date.now();
+    window.addEventListener('devicemotion',function(e){
+      var a=e.accelerationIncludingGravity; if(!a||a.x==null) return;
+      S.motionOK=true;
+      var m=Math.sqrt(a.x*a.x+a.y*a.y+a.z*a.z)/9.80665;
+      S.g=ema(S.g,m,0.12);
+      if(Date.now()-S.motionStart>2500 && S.g>S.maxG) S.maxG=S.g;
+    });
+  }
+  function startMotion(){
+    if(typeof DeviceMotionEvent!=='undefined' && typeof DeviceMotionEvent.requestPermission==='function'){
+      DeviceMotionEvent.requestPermission().then(function(r){ if(r==='granted') attachMotion(); }).catch(function(){});
+    } else attachMotion();
+  }
+
+  /* ---------- wake lock ---------- */
+  function keepAwake(){
+    if(!('wakeLock' in navigator)) return;
+    navigator.wakeLock.request('screen').then(function(l){
+      S.wake=l; l.addEventListener('release',function(){ S.wake=null; });
+    }).catch(function(){});
+  }
+  document.addEventListener('visibilitychange',function(){
+    if(document.visibilityState==='visible'&&S.running&&!S.wake) keepAwake();
+  });
+
+  /* ---------- formatting ---------- */
+  function fmt(v,d){ return v.toFixed(d); }
+  function txtGS(){
+    if(S.dispGS==null) return '- - -';
+    var v=S.units.speed==='KT'? S.dispGS*KT : S.dispGS*MS_KMH;
+    return String(Math.round(v));
+  }
+  function txtALT(){
+    if(S.dispALT==null) return '- - -';
+    var v=S.units.alt==='FT'? S.dispALT*M_FT : S.dispALT;
+    v=Math.round(v/10)*10;
+    return v.toLocaleString('en-US');
+  }
+  function txtTrend(){
+    if(S.trend==null) return '- - -';
+    var v=S.units.trend==='KT/S'? S.trend*KT : S.trend*MS_KMH;
+    if(Math.abs(v)<0.05) v=0;
+    return (v>0?'+':v<0?'\u2212':'') + Math.abs(v).toFixed(1);
+  }
+  function txtVS(){
+    if(S.vs==null) return '- - -';
+    var v,u=S.units.vs;
+    if(u==='FT/MIN'){ v=Math.round(S.vs*FPM/10)*10; }
+    else if(u==='M/MIN'){ v=Math.round(S.vs*60); }
+    else { v=S.vs; }
+    var a=Math.abs(v), s=(v>0?'+':v<0?'\u2212':'');
+    return s + (u==='M/S'? a.toFixed(1) : Math.round(a).toLocaleString('en-US'));
+  }
+  function dms(v,pos,neg,pad){
+    if(v==null) return (pad===3?'---.----':'--.----')+'\u00B0 -';
+    return Math.abs(v).toFixed(4)+'\u00B0 '+(v>=0?pos:neg);
+  }
+
+  /* ---------- tape ---------- */
+  var cv=$('tape'), ctx=cv.getContext('2d'), W=0,H=0;
+  function sizeTape(){
+    var r=cv.getBoundingClientRect(), dpr=Math.min(window.devicePixelRatio||1,3);
+    W=r.width; H=r.height;
+    cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  window.addEventListener('resize',function(){ sizeTape(); });
+  window.addEventListener('orientationchange',function(){ setTimeout(sizeTape,250); });
+
+  var CARD={0:'N',90:'E',180:'S',270:'W'};
+  function drawTape(){
+    if(!W) sizeTape();
+    ctx.clearRect(0,0,W,H);
+    var live=S.hdgShown!=null;
+    var h=live?S.hdgShown:0;
+    var ppd=W/70;                     // ±35° visible
+    var baseY=H-24, topY=H*0.30;
+    ctx.strokeStyle='rgba(122,162,184,.25)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(0,baseY+.5); ctx.lineTo(W,baseY+.5); ctx.stroke();
+
+    ctx.textAlign='center';
+    var start=Math.floor((h-38)/5)*5;
+    for(var a=start;a<=h+38;a+=5){
+      var x=W/2+(a-h)*ppd;
+      if(x<-30||x>W+30) continue;
+      var n=((Math.round(a)%360)+360)%360;
+      var major=(n%10===0);
+      ctx.globalAlpha=live?1:0.28;
+      ctx.strokeStyle=major?'rgba(200,226,238,.75)':'rgba(122,162,184,.45)';
+      ctx.beginPath(); ctx.moveTo(x,baseY); ctx.lineTo(x,baseY-(major?13:7)); ctx.stroke();
+      if(major){
+        ctx.fillStyle=CARD[n]?'#57c9ea':'#c8dbe6';
+        ctx.font=(CARD[n]?'600 ':'400 ')+Math.round(Math.min(15,Math.max(11,W/26)))+'px ui-monospace,Menlo,monospace';
+        ctx.fillText(CARD[n]||('00'+n).slice(-3), x, baseY-19);
+      }
+      ctx.globalAlpha=1;
+    }
+    // pointer
+    ctx.fillStyle=live?'#31e08c':'#3d4d59';
+    ctx.beginPath();
+    ctx.moveTo(W/2,baseY-1); ctx.lineTo(W/2-7,baseY+10); ctx.lineTo(W/2+7,baseY+10); ctx.closePath(); ctx.fill();
+    // digital readout
+    ctx.font='500 '+Math.round(Math.min(26,Math.max(17,W/15)))+'px ui-monospace,Menlo,monospace';
+    ctx.fillStyle=live?'#e9f2f7':'#3d4d59';
+    ctx.fillText(live?('00'+Math.round(((h%360)+360)%360)).slice(-3)+'\u00B0':'- - -\u00B0', W/2, topY+4);
+  }
+
+  /* ---------- render ---------- */
+  function render(){
+    $('gs').textContent=txtGS();
+    $('alt').textContent=txtALT();
+    var tr=$('trend'), vs=$('vs');
+    tr.textContent=txtTrend(); vs.textContent=txtVS();
+    tr.classList.toggle('neg', S.trend!=null&&S.trend<-0.03);
+    vs.classList.toggle('neg', S.vs!=null&&S.vs<-0.15);
+    $('g').textContent = S.g==null?'- . - -':S.g.toFixed(2);
+    $('maxg').textContent = S.maxG?S.maxG.toFixed(2):'- . - -';
+    $('lat').textContent = dms(S.lat,'N','S',2);
+    $('lon').textContent = dms(S.lon,'E','W',3);
+
+    var dot=$('dot'), stat=$('stat'), age=Date.now()-S.lastFixTime;
+    if(S.err===1){ dot.className='dot bad'; stat.textContent='无权限'; }
+    else if(!S.lastFixTime){ dot.className='dot'; stat.textContent='搜星中…'; }
+    else if(age>8000){ dot.className='dot warn'; stat.textContent='GPS 信号丢失 '+Math.round(age/1000)+'s'; }
+    else {
+      dot.className='dot '+(S.acc!=null&&S.acc<=15?'ok':'warn');
+      stat.textContent='GPS  \u00B1'+Math.round(S.acc||0)+' m';
+    }
+  }
+
+  var lastPaint=0;
+  function loop(ts){
+    requestAnimationFrame(loop);
+    // ease heading toward target on shortest arc
+    if(S.hdg!=null){
+      if(S.hdgShown==null) S.hdgShown=S.hdg;
+      else{
+        var d=((S.hdg-S.hdgShown+540)%360)-180;
+        S.hdgShown=(S.hdgShown+d*0.14+360)%360;
+      }
+    }
+    if(ts-lastPaint<66) return;
+    lastPaint=ts;
+    drawTape(); render();
+  }
+
+  /* ---------- gate ---------- */
+  function showGate(msg,btn){
+    var g=$('gate'); g.classList.remove('hide');
+    $('gateMsg').textContent=msg; $('go').textContent=btn||'START';
+  }
+  $('go').addEventListener('click',function(){
+    $('gate').classList.add('hide');
+    if(S.running) return;
+    S.running=true;
+    startMotion(); startGeo(); keepAwake(); sizeTape();
+    requestAnimationFrame(loop);
+  });
+
+  /* ---------- service worker ---------- */
+  if('serviceWorker' in navigator){
+    window.addEventListener('load',function(){
+      navigator.serviceWorker.register('sw.js').catch(function(){});
+    });
+  }
+})();
+</script>
+</body>
+</html>
