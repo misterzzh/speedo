@@ -1,8 +1,0 @@
-{
-  "name": "速度表",
-  "short_name": "速度表",
-  "start_url": "./index.html",
-  "display": "standalone",
-  "background_color": "#05070a",
-  "theme_color": "#05070a"
-}
